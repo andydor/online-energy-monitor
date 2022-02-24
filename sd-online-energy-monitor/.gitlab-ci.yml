@@ -1,0 +1,60 @@
+stages:
+  - build
+  - deploy
+
+cache:
+  paths:
+    - node_modules/
+    
+variables:
+  CI: ""
+
+# build:
+#   stage: build
+#   image: node:16
+#   script:
+#     - npm install --progress=false
+#     - npm run build
+
+build:
+  image: docker:latest
+  services:
+    - docker:dind
+  stage: build
+  script:
+    - docker login -u $CI_DEPLOY_USER -p $CI_DEPLOY_PASSWORD $CI_REGISTRY
+    - docker pull $CI_REGISTRY_IMAGE:latest || true
+    - docker build --cache-from $CI_REGISTRY_IMAGE:latest --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA --tag $CI_REGISTRY_IMAGE:latest .
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+    - docker push $CI_REGISTRY_IMAGE:latest
+
+# deploy:
+#   stage: deploy
+#   image: ruby:2.4
+#   script:
+#     - apt-get update -qy
+#     - apt-get install -y ruby-dev
+#     - gem install dpl
+#     - dpl --provider=heroku --app=online-energy-monitor-frontend --api-key=$HEROKU_API_KEY --skip_cleanup
+#   environment:
+#     name: staging
+#     url: https://online-energy-monitor-frontend.herokuapp.com/
+#   only:
+#     - production
+variables:
+    APP_NAME: online-energy-monitor-frontend
+    
+deploy:
+  image: docker:latest
+  services:
+    - docker:dind
+  stage: deploy
+  only:
+    - docker_production
+  script:
+    - docker login -u $CI_DEPLOY_USER -p $CI_DEPLOY_PASSWORD $CI_REGISTRY
+    - docker pull $CI_REGISTRY_IMAGE:latest
+    - docker tag $CI_REGISTRY_IMAGE:latest $HEROKU_REGISTRY_IMAGE:latest
+    - docker login --username=_ --password=$HEROKU_API_KEY $HEROKU_REGISTRY
+    - docker push $HEROKU_REGISTRY_IMAGE:latest
+    - docker run --rm -e HEROKU_API_KEY=$HEROKU_API_KEY wingrunr21/alpine-heroku-cli container:release web --app $APP_NAME
